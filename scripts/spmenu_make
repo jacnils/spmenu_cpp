@@ -1,0 +1,448 @@
+#!/usr/bin/env bash
+# spmenu_make
+
+imlib2=${imlib2:-true}
+xinerama=${xinerama:-true}
+openssl=${openssl:-true}
+fribidi=${fribidi:-true}
+libconfig=${libconfig:-true}
+xresources=${xresources:-true}
+wayland=${wayland:-true}
+x11=${x11:-true}
+regex=${regex:-true}
+fifo=${fifo:-true}
+library=${library:-true}
+
+prefix="${prefix:-/usr}"
+
+reconfigure=${reconfigure:-true}
+static=${static:-false}
+
+clean() {
+    clean_headers
+    rm -rf ./*.zst* ./*.tar* ./*.sig* *.PKGBUILD *.ebuild *.ebuild* build/ PKGBUILD
+}
+
+check_correct_dir() {
+    [ ! -f "src/spmenu.cpp" ] && printf "Incorrect directory.\n" && exit 1
+}
+
+gen_arg_list() {
+    [ ! -x "$(command -v spmenu)" ] && printf "spmenu must be installed for this action.\n" && exit 1
+
+    spmenu -h | grep -vE -- "- |: fancy dynamic menu" | sed "s/<//g; s/>/  /g; /^[[:space:]]*$/d"
+}
+
+docs() {
+    [ ! -x "$(command -v pandoc)" ] && printf "pandoc must be installed for this action.\n" && exit 1
+
+    version="$(grep "version : '" meson.build | awk '{ print $3 }' | sed "s/'\"//g; s/\"',//g")"
+
+    if [ -f "docs/docs.md" ]; then
+        printf "%% spmenu(1) ${version} | fancy dynamic menu\n" > .man.md
+        cat docs/docs.md >> .man.md
+        pandoc --standalone --to man .man.md -o spmenu.1
+        rm -f .man.md
+    fi
+
+    if [ -f "docs/run-docs.md" ]; then
+        printf "%% spmenu_run(1) ${version} | \$PATH/.desktop launcher and file manager\n" > .man.md
+        cat docs/run-docs.md >> .man.md
+        pandoc --standalone --to man .man.md -o spmenu_run.1
+        rm -f .man.md
+    fi
+
+    if [ -f "docs/test-docs.md" ]; then
+        printf "%% spmenu_test(1) ${version} | spmenu test script\n" > .man.md
+        cat docs/test-docs.md >> .man.md
+        pandoc --standalone --to man .man.md -o spmenu_test.1
+        rm -f .man.md
+    fi
+}
+
+headers() {
+    [ ! -x "$(command -v wayland-scanner)" ] && printf "wayland-scanner must be installed for this action.\n" && exit 1
+
+    wayland-scanner \
+        client-header \
+        protocols/wlr-layer-shell-unstable-v1.xml \
+        src/wl/wlr-layer-shell-unstable-v1-client-protocol.h
+
+    wayland-scanner \
+        client-header \
+        protocols/xdg-shell.xml \
+        src/wl/xdg-shell-client-protocol.h
+
+    wayland-scanner \
+        client-header \
+        protocols/xdg-output-unstable-v1.xml \
+        src/wl/xdg-output-unstable-v1-client-protocol.h
+
+    wayland-scanner \
+        public-code \
+        protocols/wlr-layer-shell-unstable-v1.xml \
+        src/wl/wlr-layer-shell-unstable-v1-protocol.c
+
+    wayland-scanner \
+        public-code \
+        protocols/xdg-shell.xml \
+        src/wl/xdg-shell-protocol.c
+
+    wayland-scanner \
+        public-code \
+        protocols/xdg-output-unstable-v1.xml \
+        src/wl/xdg-output-unstable-v1-protocol.c
+}
+
+clean_headers() {
+    rm -f \
+        src/wl/xdg-output-unstable-v1-protocol.c \
+        src/wl/xdg-shell-protocol.c \
+        src/wl/wlr-layer-shell-unstable-v1-protocol.c \
+        src/wl/xdg-output-unstable-v1-client-protocol.h \
+        src/wl/xdg-shell-client-protocol.h \
+        src/wl/wlr-layer-shell-unstable-v1-client-protocol.h
+}
+
+gen_pkg() {
+    [ "$(id -u)" = "0" ] && printf "Do not run as root.\n" && exit 1
+    version="$(grep "version : '" meson.build | awk '{ print $3 }' | sed "s/'\"//g; s/\"',//g")"
+
+    rm -f spmenu spmenu-${version}.tar.gz spmenu-${version}.PKGBUILD *.o *zst*
+    mkdir -p spmenu-${version}
+    cp -rf \
+        LICENSE \
+        meson.build \
+        meson_options.txt \
+        spmenu.1 \
+        spmenu_run.1 \
+        spmenu_test.1 \
+        scripts/ \
+        docs/ \
+        src/ \
+        protocols/ \
+        packaging \
+        "spmenu-${version}"
+    tar -cf spmenu-${version}.tar spmenu-${version}
+    gzip spmenu-${version}.tar
+    rm -rf spmenu-${version}
+
+    USER="$(whoami)"
+    printf "Is your GPG key '$(whoami)'?\n"
+    select yn in "Yes" "No"; do
+        case $yn in
+            Yes) USER="$(whoami)"; break ;;
+            No) printf "\n> "; read -r USER; break ;;
+        esac
+    done
+
+    if [ -x "$(command -v gpg)" ]; then
+        gpg --detach-sign --yes --local-user "${USER}" spmenu-${version}.tar.gz
+    fi
+
+    if [ -x "$(command -v md5sum)" ]; then
+        md5sum *.tar.gz | cut -d ' ' -f 1 > spmenu-${version}.tar.gz.md5
+    fi
+
+    if [ -x "$(command -v sha256sum)" ]; then
+        sha256sum *.tar.gz | cut -d ' ' -f 1 > spmenu-${version}.tar.gz.sha256
+    fi
+}
+
+gen_gentoo_pkg() {
+    [ "$(id -u)" = "0" ] && printf "Do not run as root.\n" && exit 1
+    version="$(grep "version : '" meson.build | awk '{ print $3 }' | sed "s/'\"//g; s/\"',//g")"
+
+    USER="$(whoami)"
+    printf "Is your GPG key '$(whoami)'?\n"
+    select yn in "Yes" "No"; do
+        case $yn in
+            Yes) USER="$(whoami)"; break ;;
+            No) printf "\n> "; read -r USER; break ;;
+        esac
+    done
+
+    if [ -f "packaging/spmenu.ebuild" ]; then
+        cp packaging/spmenu.ebuild spmenu-${version}.ebuild
+
+        if [ -x "$(command -v gpg)" ]; then
+            gpg --detach-sign --yes --local-user "${USER}" spmenu-${version}.ebuild
+        fi
+
+        if [ -x "$(command -v md5sum)" ]; then
+            md5sum spmenu-${version}.ebuild | cut -d ' ' -f 1 > spmenu-${version}.ebuild.md5
+        fi
+
+        if [ -x "$(command -v sha256sum)" ]; then
+            sha256sum spmenu-${version}.ebuild | cut -d ' ' -f 1 > spmenu-${version}.ebuild.sha256
+        fi
+    fi
+
+    if [ -f "packaging/libspmenu.ebuild" ] && [ "$library" != "false" ]; then
+        cp packaging/libspmenu.ebuild libspmenu-${version}.ebuild
+
+        if [ -x "$(command -v gpg)" ]; then
+            gpg --detach-sign --yes --local-user "${USER}" libspmenu-${version}.ebuild
+        fi
+
+        if [ -x "$(command -v md5sum)" ]; then
+            md5sum libspmenu-${version}.ebuild | cut -d ' ' -f 1 > libspmenu-${version}.ebuild.md5
+        fi
+
+        if [ -x "$(command -v sha256sum)" ]; then
+            sha256sum libspmenu-${version}.ebuild | cut -d ' ' -f 1 > libspmenu-${version}.ebuild.sha256
+        fi
+    fi
+}
+
+gen_arch_pkg() {
+    [ "$(id -u)" = "0" ] && printf "Do not run as root.\n" && exit 1
+    [ ! -x "$(command -v makepkg)" ] && printf "makepkg required for this action.\n" && exit 1
+
+    rm -f PKGBUILD
+
+    gen_pkg
+
+    if [ -x "$(command -v md5sum)" ]; then
+        MD5_SUM="$(md5sum spmenu-${version}.tar.gz | cut -d ' ' -f 1)"
+    fi
+
+    if [ -x "$(command -v sha256sum)" ]; then
+        SHA256_SUM="$(sha256sum spmenu-${version}.tar.gz | cut -d ' ' -f 1)"
+    fi
+
+    sed "s/VERSION/${version}/g; s/MD5SUM/$MD5_SUM/g; s/SHA256SUM/$SHA256_SUM/g" packaging/spmenu.PKGBUILD > PKGBUILD
+
+    makepkg -sfr --sign || exit 1
+
+    rm -rf pkg/ src/spmenu-${version}.tar.gz src/spmenu-${version}.tar.gz.sig src/spmenu-${version}
+
+    mv PKGBUILD spmenu-${version}.PKGBUILD
+
+    # generate MD5 checksum
+    [ -x "$(command -v md5sum)" ] && \
+        md5sum spmenu-${version}-1-x86_64.pkg.tar.zst | cut -d ' ' -f 1 > spmenu-${version}-1-x86_64.pkg.tar.zst.md5
+    [ -x "$(command -v md5sum)" ] && \
+        md5sum libspmenu-${version}-1-x86_64.pkg.tar.zst | cut -d ' ' -f 1 > libspmenu-${version}-1-x86_64.pkg.tar.zst.md5
+
+    # generate SHA256 checksum
+    [ -x "$(command -v sha256sum)" ] && \
+        sha256sum spmenu-${version}-1-x86_64.pkg.tar.zst | cut -d ' ' -f 1 > spmenu-${version}-1-x86_64.pkg.tar.zst.sha256
+    [ -x "$(command -v sha256sum)" ] && \
+        sha256sum libspmenu-${version}-1-x86_64.pkg.tar.zst | cut -d ' ' -f 1 > libspmenu-${version}-1-x86_64.pkg.tar.zst.sha256
+}
+
+generate_theme() {
+    declare -a color
+    color=()
+    i=1
+
+    [ ! -f "$1" ] && printf "File does not exist.\n" && exit 1
+    [ "$(grep -c "" "$1")" != "18" ] && printf "Color list is not 18 lines long.\n" && exit 1
+
+    # assign colors to variables
+    while true; do
+        color[i]="$(sed -n ${i},${i}p $1)"
+        ccol="${color[i]}"
+
+        [ "${#ccol}" != "7" ] || [ "${ccol:0:1}" != "#" ] && color[i]="#000000"
+        [ "$i" = "18" ] && break
+
+        i=$((i+1))
+    done
+
+cat << EOF
+/* spmenu colorscheme generated from ${1:-None} */
+theme = {
+    color = ( {
+            itemnormfg = "${color[17]}";
+            itemnormbg = "${color[18]}";
+            itemnormfg2 = "${color[17]}";
+            itemnormbg2 = "${color[18]}";
+            itemselfg = "${color[18]}";
+            itemselbg = "${color[7]}";
+            itemmarkedfg = "${color[1]}";
+            itemmarkedbg = "${color[7]}";
+            itemnormprifg = "${color[17]}";
+            itemnormpribg = "${color[18]}";
+            itemselprifg = "${color[17]}";
+            itemselpribg = "${color[13]}";
+            menu = "${color[18]}";
+            promptfg = "${color[18]}";
+            promptbg = "${color[2]}";
+            larrowfg = "${color[13]}";
+            rarrowfg = "${color[13]}";
+            larrowbg = "${color[18]}";
+            rarrowbg = "${color[18]}";
+            inputfg = "${color[17]}";
+            inputbg = "${color[18]}";
+            pretextfg = "${color[8]}";
+            pretextbg = "${color[18]}";
+            numfg = "${color[18]}";
+            numbg = "${color[3]}";
+            hlnormfg = "${color[7]}";
+            hlnormbg = "${color[18]}";
+            hlselfg = "${color[16]}";
+            hlselbg = "${color[1]}";
+            caretfg = "${color[17]}";
+            border = "${color[10]}";
+            modefg = "${color[18]}";
+            modebg = "${color[14]}";
+            capsfg = "${color[18]}";
+            capsbg = "${color[5]}";
+            sgr0 = "${color[1]}";
+            sgr1 = "${color[2]}";
+            sgr2 = "${color[3]}";
+            sgr3 = "${color[4]}";
+            sgr4 = "${color[5]}";
+            sgr5 = "${color[6]}";
+            sgr6 = "${color[7]}";
+            sgr7 = "${color[8]}";
+            sgr8 = "${color[9]}";
+            sgr9 = "${color[10]}";
+            sgr10 = "${color[11]}";
+            sgr11 = "${color[12]}";
+            sgr12 = "${color[13]}";
+            sgr13 = "${color[14]}";
+            sgr14 = "${color[15]}";
+            sgr15 = "${color[16]}";
+            } );
+
+    file = ( { global = 0; } );
+};
+EOF
+}
+
+build() {
+    [ -x "buildconf" ] && [ ! -x "buildconf_dev" ] && source buildconf
+    [ -x "buildconf_dev" ] && source buildconf_dev
+
+    [ ! -f "meson.build" ] && printf "meson.build does not exist.\n" && exit 1
+
+    cp -f meson.build meson.build.orig
+
+    [ "$reconfigure" != "false" ] && rm -rf build/
+
+    mkdir -p build/
+
+    [ "$static" = "true" ] && STATIC="--prefer-static"
+
+    if [ "$reconfigure" = "true" ]; then
+        meson setup --reconfigure $STATIC \
+            -Dxresources="$xresources" \
+            -Dfribidi="$fribidi" \
+            -Dxinerama="$xinerama" \
+            -Dimlib2="$imlib2" \
+            -Dopenssl="$openssl" \
+            -Dlibconfig="$libconfig" \
+            -Dwayland="$wayland" \
+            -Dx11="$x11" \
+            -Dregex="$regex" \
+            -Dfifo="$fifo" \
+            --prefix "$prefix" \
+            build || exit 1
+    else
+        meson setup \
+            -Dxresources="$xresources" $STATIC \
+            -Dfribidi="$fribidi" \
+            -Dxinerama="$xinerama" \
+            -Dimlib2="$imlib2" \
+            -Dopenssl="$openssl" \
+            -Dlibconfig="$libconfig" \
+            -Dwayland="$wayland" \
+            -Dx11="$x11" \
+            -Dregex="$regex" \
+            -Dfifo="$fifo" \
+            --prefix "$prefix" \
+            build || exit 1
+    fi
+
+    ninja -C build
+
+    [ "$cp_build" = "true" ] && cp meson.build meson.build.used
+    mv -f meson.build.orig meson.build
+
+    if [ "$library" != "false" ]; then
+        cd src/libspmenu/ || exit 1
+        meson setup --prefix "$prefix" build || exit 1
+        ninja -C build
+        cd ../../ || exit 1
+    fi
+}
+
+install() {
+    [ "$(id -u)" != "0" ] && printf "This action needs to be run as root.\n" && exit 1
+    [ ! -d "build/" ] && build
+    cd build/ || exit 1
+    meson install
+    cd .. || exit 1
+    [ "$reconfigure" = "true" ] && rm -rf build/
+    [ "$reconfigure" = "true" ] && clean_headers
+
+    if [ "$library" != "false" ]; then
+        cd src/libspmenu/build/ || exit 1
+        meson install
+        cd ..
+        [ "$reconfigure" = "true" ] && rm -rf build/
+        cd ../../
+    fi
+}
+
+help() {
+cat << EOF
+$0 - Build spmenu
+
+$0               Build spmenu
+$0 install       Install spmenu
+$0 clean         Remove tarballs and pacman packages
+$0 dist          Create a distro package for spmenu
+$0 arglist       Create an argument list for spmenu based on spmenu -h output
+$0 pkg_arch      Create a Arch package for spmenu
+$0 pkg_gentoo    Create a Gentoo package for spmenu
+$0 theme <theme> Create a theme for spmenu based on 18 colors
+$0 docs          Generate documentation such as man pages for spmenu
+$0 headers       Generate headers using wayland-scanner
+$0 clean_headers Remove generated headers
+$0 help          Print this help
+EOF
+}
+
+main() {
+    case "$1" in
+        "clean") action="clean" ;;
+        "dist") action="dist" ;;
+        "arglist") action="arglist" ;;
+        "pkg_arch") action="arch" ;;
+        "pkg_gentoo") action="gentoo" ;;
+        "help") action="help" ;;
+        "install") action="install" ;;
+        "theme") action="theme" ;;
+        "docs") action="mkdocs" ;;
+        "headers") action="headers" ;;
+        "clean_headers") action="clean_headers" ;;
+        "") action="build" ;;
+        *) [ -z "$action" ] && action="wrong" ;;
+    esac
+
+    check_correct_dir
+
+    case "$action" in
+        "wrong") printf "Invalid action: %s\n" "$1" && exit 1 ;;
+        "clean") clean ;;
+        "mkdocs") docs ;;
+        "headers") headers ;;
+        "clean_headers") clean_headers ;;
+        "build") build ;;
+        "install") install ;;
+        "arch") gen_arch_pkg ;;
+        "gentoo") gen_gentoo_pkg ;;
+        "theme") generate_theme "$2" ;;
+        "help") help ;;
+        "arglist") gen_arg_list ;;
+        "dist") gen_pkg ;;
+    esac
+
+    exit $?
+}
+
+main "$@"

@@ -1,0 +1,473 @@
+#!/usr/bin/env bash
+# spmenu_run
+# Feature rich run launcher, file lister and .desktop launcher for spmenu
+#
+# See LICENSE file for copyright and license details.
+
+# Set basic variables, in case the config isn't valid, env variables and config file can override these
+CONFDIR="${CONFDIR:-${XDG_CONFIG_HOME:-$HOME/.config}}"
+TERMINAL="${TERMINAL:-st -e}"
+BROWSER="${BROWSER:-xdg-open}"
+TORRENT="${TORRENT:-qbittorrent}"
+PDF_READER="${PDF_READER:-zathura}"
+EDITOR="${EDITOR:-nvim}"
+PLAYER="${PLAYER:-mpv}"
+GENERIC="${GENERIC:-$TERMINAL -e $EDITOR}"
+WEB_GREP="${WEB_GREP:-http:|https:|www[.]}"
+MAGNET_GREP="${MAGNET_GREP:-magnet:?}"
+HISTORY="${HISTORY:-${XDG_CACHE_HOME:-$HOME/.cache/}/spmenu/spmenu_run.hist}"
+RUNLAUNCHER="${RUNLAUNCHER:-spmenu}"
+PREFIX="${PREFIX:-/usr}"
+DESTDIR="${DESTDIR:-}"
+STDOUT="${STDOUT:-false}"
+SORT_BY_NUMBER="${SORT_BY_NUMBER:-false}"
+SORT_IN_REVERSE="${SORT_IN_REVERSE:-false}"
+SORT_BY_RECENT="${SORT_BY_RECENT:-false}"
+SORT_ARGS="${SORT_ARGS:-}"
+UNIQ_ARGS="${UNIQ_ARGS:-}"
+HIDDEN_KEYWORDS="${HIDDEN_KEYWORDS:-spmenu}"
+KEYWORDS="${KEYWORDS:-}"
+DISPLAY_BOOKMARKS="${DISPLAY_BOOKMARKS:-true}"
+DISPLAY_DUPLICATES="${DISPLAY_DUPLICATES:-false}"
+DISPLAY_DESCRIPTION="${DISPLAY_DESCRIPTION:-false}"
+DISPLAY_COMMENT="${DISPLAY_COMMENT:-true}"
+LS_ARGS="${LS_ARGS:- --color=always}"
+USE_FULL_PATH="${USE_FULL_PATH:-false}"
+HELP_COLOR="${HELP_COLOR:-#FFFF00}"
+DESCRIPTION_COLOR="${DESCRIPTION_COLOR:-#999888}"
+DESCRIPTION_SEPARATOR="${DESCRIPTION_SEPARATOR:- - }"
+COMMENT_COLOR="${COMMENT_COLOR:-#999888}"
+COMMENT_SEPARATOR="${COMMENT_SEPARATOR:- - }"
+DMENU_COMPAT="${DMENU_COMPAT:-false}"
+AUTOREFRESH="${AUTOREFRESH:-true}"
+MULTISELECT="${MULTISELECT:-true}"
+BOOKMARK_FILE="${BOOKMARK_FILE:-${XDG_CACHE_HOME:-$HOME/.cache/}/spmenu/spmenu_run.bookmarks}"
+BOOKMARK_PROMPT="${BOOKMARK_PROMPT:-Bookmarks}"
+PRINT_LOGS_STDERR="${PRINT_LOGS_STDERR:-true}"
+RESPECT_NODISPLAY="${RESPECT_NODISPLAY:-true}"
+RESPECT_ONLYSHOWIN="${RESPECT_ONLYSHOWIN:-true}"
+PREFERRED_LANGUAGE="${PREFERRED_LANGUAGE:-generic}"
+
+RUNLAUNCHER_RUN_ARGS=""
+RUNLAUNCHER_BM_ARGS=""
+RUNLAUNCHER_DESKTOP_ARGS=""
+RUNLAUNCHER_FM_ARGS="--lines 40 --columns 2"
+RUNLAUNCHER_HELP_ARGS=""
+
+RUNLAUNCHER_RUN_PRETEXT="Type in keywords to search for a program.."
+RUNLAUNCHER_BM_PRETEXT="Type in keywords to search for a bookmark.."
+RUNLAUNCHER_DESKTOP_PRETEXT="Type in keywords to search for a program.."
+RUNLAUNCHER_FM_PRETEXT="Type in keywords to search for a file or directory.."
+RUNLAUNCHER_HELP_PRETEXT=""
+
+DESKTOP_DIR="${DESKTOP_DIR:-/usr/share/applications /usr/local/share/applications ${HOME}/.local/share/applications /var/lib/flatpak/exports/share/applications ${HOME}/.local/share/flatpak/exports/share/applications}"
+ICON_DIR="${ICON_DIR:-/usr/share/icons /usr/local/share/icons ${HOME}/.local/share/icons /usr/share/pixmaps /usr/local/share/pixmaps /var/lib/flatpak/exports/share/icons}"
+IMAGE="${IMAGE:-true}"
+LOGFILE="${LOGFILE:-/tmp/spmenu_run.log}"
+
+TITLEFILE="${TITLEFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_title}"
+EXECFILE="${EXECFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_exec}"
+ICONFILE="${ICONFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_icon}"
+DESCFILE="${DESCFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_desc}"
+FILEFILE="${FILEFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_file}"
+TERMFILE="${TERMFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_term}"
+ONLYFILE="${DISPLAYFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_only}"
+DISPLAYFILE="${DISPLAYFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_display}"
+COMMENTFILE="${COMMENTFILE:-${XDG_CACHE_HOME:-$HOME/.cache}/spmenu/.desktop_comment}"
+
+# arrays containing entries
+declare -a it_title
+declare -a it_icon
+declare -a it_exec
+declare -a it_file
+declare -a it_desc
+declare -a it_comment
+declare -a it_term
+
+# arrays containing arguments
+declare -a rl_fm
+declare -a rl_bm
+declare -a rl_run
+declare -a rl_desktop
+declare -a rl_help
+declare -a rl_ex
+declare -a ls_args
+declare -a sort_args
+declare -a uniq_args
+
+# directories
+declare -a desktopdir
+declare -a icondir
+
+load_x() {
+    v="$(command -v "$1")"
+    [ ! -x "$v" ] && printf "Failed to load module\n" >> /dev/stderr && exit 1
+    . "$v" && return 0
+}
+
+prepare_dirs() {
+    mkdir -p \
+        "$(dirname "$TITLEFILE")" \
+        "$(dirname "$EXECFILE")" \
+        "$(dirname "$ICONFILE")" \
+        "$(dirname "$DESCFILE")" \
+        "$(dirname "$FILEFILE")" \
+        "$(dirname "$TERMFILE")" \
+        "$(dirname "$DISPLAYFILE")" \
+        "$(dirname "$COMMENTFILE")" \
+        "$(dirname "$LOGFILE")" \
+        "$(dirname "$HISTORY")" \
+        "$(dirname "$BOOKMARK_FILE")"
+}
+
+check() {
+    prepare_dirs
+    [ ! -d "$CONFDIR/spmenu/run" ] && mkdir -p "$CONFDIR/spmenu/run"
+}
+
+print_cli_help() {
+    cat << EOF
+spmenu_run - Run launcher for spmenu
+
+spmenu_run -x,   --run               List entries in \$PATH.
+spmenu_run -fm,  --fm <dir>          List files and directories in <dir>
+spmenu_run -d,   --desktop           List .desktop entries.
+spmenu_run -p,   --full-path         Print the full path to the file selected (-fm)
+spmenu_run -np,  --no-full-path      Don't print the full path to the file selected (-fm)
+spmenu_run -cc,  --clear-cache       Clear cache, useful if you just installed/uninstalled a program (-d)
+spmenu_run -sb,  --show-bookmarks    Show bookmarks immediately
+spmenu_run -nsb, --no-show-bookmarks Don't show bookmarks immediately
+spmenu_run -dm,  --dmenu             Run spmenu_run using dmenu instead of spmenu
+spmenu_run -ndm, --no-dmenu          Run spmenu_run using spmenu instead of dmenu
+spmenu_run -h,   --help              Print this help
+spmenu_run -o,   --stdout            Print to standard input and do not execute the selected item
+spmenu_run -no,  --no-stdout         Don't print to standard input, execute the selected item
+spmenu_run -a,   --args <args>       Pass <args> to spmenu
+
+See spmenu(1) and spmenu_run(1) for more information.
+EOF
+}
+
+print_config() {
+    [ -f "$CONFDIR/spmenu/run/config" ] && . "$CONFDIR/spmenu/run/config" && return
+    mkdir -p "$CONFDIR/spmenu/run"
+    cat << EOF > "$CONFDIR/spmenu/run/config"
+# spmenu_run default configuration file
+#
+# This is the configuration file for the run launcher spmenu comes with.
+# It is not the configuration file for spmenu, see ~/.config/spmenu/spmenu.conf for that.
+#
+# spmenu_run also runs these functions if found in the config file:
+#
+# 'run_pre_func' before spawning spmenu.
+# 'run_post_func' after spawning spmenu, selected item passed as an argument.
+# 'run_pre_bookmark_list_func' while listing selected/marked items. The selected item is passed as an argument.
+# 'run_post_bookmark_list_func' while listing selected/marked items. The selected item is passed as an argument.
+# 'run_file_bookmark_list_func' while reading entries from the bookmark file. The current bookmark is passed as an argument.
+# 'run_single_char_pre_bookmark_list_func' while listing selected/marked items. The first character of the spmenu output is passed as an argument.
+# 'run_single_char_func' while checking the value of a single character. The first character of the spmenu output is passed as an argument.
+# 'run_output_func' while checking the value of the spmenu output. spmenu output is passed as an argument.
+# 'desktop_pre_func' before spawning spmenu.
+# 'desktop_post_func' after spawning spmenu, selected item passed as an argument.
+# 'desktop_pre_caching_func' before caching entries.
+# 'desktop_post_caching_func' after caching entries.
+# 'desktop_file_caching_func' while caching entries. The current file that is being parsed is passed as an argument.
+# 'fm_pre_func' before spawning spmenu.
+# 'fm_post_func' after spawning spmenu, selected item passed as an argument.
+# 'fm_pre_list_func' right before listing out files.
+# 'fm_post_list_func' right after listing out files.
+# 'fm_line_func' for each line in ls output, the line is passed as an argument, including SGR colors.
+# 'read_man' when reading a man page, selected item passed as an argument.
+# 'print_array' when printing out .desktop entries
+#
+# You may create those functions below.
+#
+# For example, to implement a basic history file:
+#
+# run_post_func() {
+#   rm -f /tmp/spmenu_entryhist; printf "\$1\n" >> /tmp/spmenu_entryhist
+# }
+#
+# You can use anything POSIX compliant shells and Bash support, as well as programs available on the system.
+
+
+# Miscellanious software options
+TERMINAL="\${TERMINAL:-st -e}" # Terminal commands are spawned in
+BROWSER="\${BROWSER:-xdg-open}" # Web browser, for URLs
+TORRENT="\${TORRENT:-qbittorrent}" # Torrent client, for magnet links
+PDF_READER="\${PDF_READER:-zathura}" # PDF reader, for file management
+EDITOR="\${EDITOR:-nvim}" # Editor, used to open documents
+PLAYER="\${PLAYER:-mpv}" # Player, used to play audio/video
+GENERIC="\${GENERIC:-\$TERMINAL -e \$EDITOR}" # Generic, used to open unknown files
+WEB_GREP="$WEB_GREP" # Needs to be in grep -E syntax
+MAGNET_GREP="$MAGNET_GREP" # Needs to be in grep -E syntax
+HISTORY="\${XDG_CACHE_HOME:-\$HOME/.cache/}/spmenu/spmenu_run.hist" # History file, spmenu (meaning your user) must have permission to read and write to it.
+DISPLAY_BOOKMARKS="$DISPLAY_BOOKMARKS" # Display bookmarks in regular list (true/false)
+BOOKMARK_FILE="\${BOOKMARK_FILE:-\${XDG_CACHE_HOME:-\$HOME/.cache/}/spmenu/spmenu_run.bookmarks}" # Bookmark file, spmenu_run must have permission to read and write to it.
+BOOKMARK_PROMPT="$BOOKMARK_PROMPT" # Bookmark prompt (-p)
+
+# Run launcher argument options
+RUNLAUNCHER="\${RUNLAUNCHER:-spmenu}" # Run launcher to use
+RUNLAUNCHER_RUN_ARGS="$RUNLAUNCHER_RUN_ARGS" # Extra arguments passed to \$RUNLAUNCHER when using the run launcher
+RUNLAUNCHER_BM_ARGS="$RUNLAUNCHER_BM_ARGS" # Extra arguments passed to \$RUNLAUNCHER when using the bookmark menu
+RUNLAUNCHER_DESKTOP_ARGS="$RUNLAUNCHER_DESKTOP_ARGS" # Extra rguments passed to \$RUNLAUNCHER when using the .desktop launcher
+RUNLAUNCHER_FM_ARGS="${RUNLAUCNHER_FM_ARGS}" # Extra arguments passed to \$RUNLAUNCHER when using the file manager
+RUNLAUNCHER_HELP_ARGS="${RUNLAUNCHER_HELP_ARGS}" # Extra arguments passed to \$RUNLAUNCHER when using the help
+DMENU_COMPAT="$DMENU_COMPAT" # Enable dmenu compatibility (true/false)
+
+# Pretext
+RUNLAUNCHER_RUN_PRETEXT="$RUNLAUNCHER_RUN_PRETEXT" # Text to display when no input text
+RUNLAUNCHER_BM_PRETEXT="$RUNLAUNCHER_BM_PRETEXT" # Text to display when no input text
+RUNLAUNCHER_DESKTOP_PRETEXT="$RUNLAUNCHER_DESKTOP_PRETEXT" # Text to display when no input text
+RUNLAUNCHER_FM_PRETEXT="$RUNLAUNCHER_FM_PRETEXT" # Text to display when no input text
+RUNLAUNCHER_HELP_PRETEXT="$RUNLAUNCHER_HELP_PRETEXT" # Text to display when no input text
+
+# Sorting
+SORT_BY_NUMBER="$SORT_BY_NUMBER" # Sort by numbers
+SORT_IN_REVERSE="$SORT_IN_REVERSE" # Sort in reverse
+SORT_BY_RECENT="$SORT_BY_RECENT" # Sort by recent
+SORT_ARGS="$SORT_ARGS" # Extra arguments passed to the sort command.
+
+# Keywords
+HIDDEN_KEYWORDS="$HIDDEN_KEYWORDS" # Keywords that will be ignored, needs to be in grep -vE syntax.
+KEYWORDS="$KEYWORDS" # Keywords that will be matched, needs to be in grep -E syntax.
+
+# Miscellanious
+STDOUT="$STDOUT" # Print to stdout and exit (true/false)
+DISPLAY_DUPLICATES="$DISPLAY_DUPLICATES" # Display duplicates or not
+DEFAULT_FEATURE="$DEFAULT_FEATURE" # spmenu_run default feature (run/fm/desktop/help)
+HELP_COLOR="$HELP_COLOR"
+
+# .desktop entry options
+DESKTOP_DIR="$DESKTOP_DIR" # Directories for .desktop entries
+ICON_DIR="$ICON_DIR" # Directories for icons defined in the entries
+HIDDEN_ENTRY_KEYWORDS="\$HIDDEN_KEYWORDS" # Keywords that will be ignored, needs to be in grep -vE syntax.
+ENTRY_KEYWORDS="\$KEYWORDS" # Keywords that will be matched, needs to be in grep -E syntax.
+AUTOREFRESH="$AUTOREFRESH" # Refresh (clear) cache if there are more entries available than cached. May cause cache to be cleared every time in some cases. (true/false)
+MULTISELECT="$MULTISELECT" # Allow handling multiple items, if set to false only the first line/selected item will be used.
+IMAGE="$IMAGE" # Display images (true/false)
+DISPLAY_COMMENT="$DISPLAY_COMMENT" # Display comment (true/false)
+DISPLAY_DESCRIPTION="$DISPLAY_DESCRIPTION" # Display description (true/false)"
+DESCRIPTION_COLOR="$DESCRIPTION_COLOR" # Description text color
+DESCRIPTION_SEPARATOR="$DESCRIPTION_SEPARATOR" # Separator between title and description
+COMMENT_COLOR="$COMMENT_COLOR" # Comment text color
+COMMENT_SEPARATOR="$COMMENT_SEPARATOR" # Separator between title and comment
+RESPECT_NODISPLAY="$RESPECT_NODISPLAY" # Respect NoDisplay in .desktop entries. If set to true, entries with 'NoDisplay=true' will not be displayed (true/false)
+RESPECT_ONLYSHOWIN="$RESPECT_ONLYSHOWIN" # Respect OnlyShowIn in .desktop entries. If set to true, entries wth 'OnlyShowIn' assigned will not be displayed (true/false)
+PREFERRED_LANGUAGE="$PREFERRED_LANGUAGE" # Preferred language for the title and description. "generic" means the default for that .desktop entry (true/false)
+LOGFILE="$LOGFILE" # Log file
+PRINT_LOGS_STDERR="$PRINT_LOGS_STDERR" # Print information (such as logs) to stderr (true/false)
+TITLEFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_title" # File containing the different titles to display.
+DESCFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_desc" # File containing the description to display
+EXECFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_exec" # File containing the different executables to run.
+ICONFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_icon" # File containing the paths to the icons to display.
+FILEFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_file" # File containing the path to the .desktop entries.
+TERMFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_term" # File containing the path to the terminal data
+ONLYFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_only" # File containing the path to the OnlyShowIn data
+DISPLAYFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_display" # File containing the path to the NoDisplay data
+COMMENTFILE="\${XDG_CACHE_HOME:-\$HOME/.cache}/spmenu/.desktop_comment" # File containing the comment to display
+
+# File management
+DEFAULT_DIRECTORY="\$(pwd)" # Directory to start -fm if none is specified.
+LS_ARGS="\${LS_ARGS:- --color=always}" # Arguments passed to /bin/ls
+USE_FULL_PATH="true" # Return full path (true/false)
+
+# Function to read the man page in spmenu
+read_man() {
+    man "\$1" | \\
+    col -b | \\
+    \${RUNLAUNCHER:-spmenu} --lines 40 --columns 1 -p "man \$1"
+}
+
+# Function used to print out the .desktop entries
+print_array() {
+    for i in "\${!it_title[@]}"; do
+        [ "\$RESPECT_ONLYSHOWIN" != "false" ] && [ "\${it_only[i]}" != "false" ] && continue
+        [ "\$RESPECT_NODISPLAY" != "false" ] && [ "\${it_display[i]}" != "true" ] && continue
+
+        if [ -f "\${it_icon[i]}" ] && [ -n "\${it_title[i]}" ] && [ -n "\${it_exec[i]}" ] && [ "\$IMAGE" != "false" ]; then
+            printf "%s\\t%s" "img://\${it_icon[i]}" "\${it_title[i]}"
+        elif [ -n "\${it_title[i]}" ] && [ -n "\${it_exec[i]}" ]; then
+            printf "%s" "\${it_title[i]}"
+        else
+            continue
+        fi
+
+        if [ -n "\${it_desc[i]}" ] && [ "\$DISPLAY_DESCRIPTION" = "true" ]; then
+            [ "\$DMENU_COMPAT" != "true" ] && COL='\\033[0;31m'
+            printf -- "\$DESCRIPTION_SEPARATOR%b%s" "\${COL}" "\${it_desc[i]}"
+        fi
+
+        if [ -n "\${it_comment[i]}" ] && [ "\$DISPLAY_COMMENT" = "true" ]; then
+            [ "\$DMENU_COMPAT" != "true" ] && COL='\\033[0;32m'
+            printf -- "\$COMMENT_SEPARATOR%b%s" "\${COL}" "\${it_comment[i]}"
+        fi
+
+        printf "\n"
+    done
+}
+EOF
+[ -f "$CONFDIR/spmenu/run/config" ] && . "$CONFDIR/spmenu/run/config" && return
+}
+
+remove_arg() {
+    args="$(printf "%s\n" "$args" | sed "s|$1||g")"
+}
+
+read_args() {
+    function="${DEFAULT_FEATURE:-run}" # default functionality
+    dir="${DEFAULT_DIRECTORY:-$(pwd)}" # default directory
+    args="$(printf "%s\n" "$@")"
+    argc="$(printf "%s\n" "$@" | grep -c "")"
+
+    while true; do
+        i=$((i+1))
+        arg="$(printf "%s\n" "$args" | sed "${i}q;d")"
+        narg="$(printf "%s\n" "$args" | sed "$((i+1))q;d")"
+
+        case "$arg" in
+            -x|--run) remove_arg "$arg" && function=run ;;
+            -o|--stdout) remove_arg "$arg" && STDOUT=true ;;
+            -no|--no-stdout) remove_arg "$arg" && STDOUT=false ;;
+            -sb|--show-bookmarks) remove_arg "$arg" && SHOW_BM=true ;;
+            -nsb|--no-show-bookmarks) remove_arg "$arg" && SHOW_BM=false ;;
+            -fm|--fm) remove_arg "$arg"
+                [ -d "$narg" ] && dir="$narg" && remove_arg "$narg"
+                function=fm
+                ;;
+            -cc|--clear-cache) remove_arg "$arg"
+                clearcache="true"
+                ;;
+            -d|--desktop) remove_arg "$arg"
+                function=desktop
+                ;;
+            -p|--full-path) remove_arg "$arg"
+                USE_FULL_PATH="true"
+                ;;
+            -np|--no-full-path) remove_arg "$arg"
+                USE_FULL_PATH="false"
+                ;;
+            -dm|--dmenu) remove_arg "$arg"
+                DMENU_COMPAT="true"
+                ;;
+            -ndm|--no-dmenu) remove_arg "$arg"
+                DMENU_COMPAT="false"
+                ;;
+            -a|--args) remove_arg "$arg"
+                [ -z "$narg" ] && printf "You must specify a list of arguments to pass to %s.\n" "$RUNLAUNCHER" && exit 1
+
+                remove_arg "$narg"
+                MARGS="$narg"
+                ;;
+            -h|--help) remove_arg "$arg" && function=help
+                ;;
+            "") :
+                ;;
+            *) printf "spmenu_run: Invalid argument: '%s'. If you meant to pass this to spmenu, use the '%s' option.\n" "$arg" "-a"
+                ;;
+        esac
+
+        [ "$argc" = "$i" ] && break
+    done
+
+    args="$(printf "%s\n" "$*")"
+}
+
+main() {
+    rm -f "$LOGFILE"
+    print_config
+    read_args "$@"
+    check "$args"
+
+    if [ ! -f "$HISTORY" ]; then
+        mkdir -p "$(dirname "$HISTORY")"
+        touch "$HISTORY" && HIST_ARG="--hist-file $HISTORY" || printf "spmenu_run: Failed to write history file" >> /dev/stderr
+    else
+        HIST_ARG="--hist-file $HISTORY"
+    fi
+
+    # some run launcher args
+    RUNLAUNCHER_FM_ARGS="--insert --lines 20 --columns 1 $HIST_ARG $RUNLAUNCHER_FM_ARGS $MARGS"
+    RUNLAUNCHER_RUN_ARGS="--insert $HIST_ARG $RUNLAUNCHER_RUN_ARGS $MARGS"
+    RUNLAUNCHER_BM_ARGS="--insert $HIST_ARG --prompt Bookmarks $RUNLAUNCHER_BM_ARGS $MARGS"
+    RUNLAUNCHER_DESKTOP_ARGS="--insert --sgr1 $DESCRIPTION_COLOR --sgr2 $COMMENT_COLOR --lines 20 --columns 1 --image-size 100 --image-gaps 20 --display-icons $RUNLAUNCHER_DESKTOP_ARGS $MARGS"
+    RUNLAUNCHER_HELP_ARGS="--insert $HIST_ARG $RUNLAUNCHER_HELP_ARGS $MARGS"
+
+    # dmenu compatibility
+    DMENU_FM_ARGS="-l 20 $MARGS"
+    DMENU_RUN_ARGS="$MARGS"
+    DMENU_BM_ARGS="$MARGS -p Bookmarks"
+    DMENU_DESKTOP_ARGS="-l 20 $MARGS"
+    DMENU_HELP_ARGS="-l 20 $MARGS"
+    COMPAT_LS_ARGS="--color=never"
+
+    if [ "$DMENU_COMPAT" != "false" ]; then
+        IMAGE="false"
+        RUNLAUNCHER="dmenu"
+        RUNLAUNCHER_FM_ARGS="$DMENU_FM_ARGS"
+        RUNLAUNCHER_RUN_ARGS="$DMENU_RUN_ARGS"
+        RUNLAUNCHER_DESKTOP_ARGS="$DMENU_DESKTOP_ARGS"
+        RUNLAUNCHER_HELP_ARGS="$DMENU_HELP_ARGS"
+        RUNLAUNCHER_BM_ARGS="$DMENU_BM_ARGS"
+        LS_ARGS="$COMPAT_LS_ARGS"
+    fi
+
+    # read to arrays
+    read -ra rl_fm <<< "${RUNLAUNCHER_FM_ARGS}"
+    read -ra rl_run <<< "${RUNLAUNCHER_RUN_ARGS}"
+    read -ra rl_bm <<< "${RUNLAUNCHER_BM_ARGS}"
+    read -ra rl_desktop <<< "${RUNLAUNCHER_DESKTOP_ARGS}"
+    read -ra rl_help <<< "${RUNLAUNCHER_HELP_ARGS}"
+    read -ra ls_args <<< "${LS_ARGS}"
+    read -ra desktopdir <<< "${DESKTOP_DIR}"
+    read -ra icondir <<< "${ICON_DIR}"
+
+    if [ "$DMENU_COMPAT" = "false" ]; then
+        rl_desktop+=("--pretext")
+        rl_fm+=("--pretext")
+        rl_run+=("--pretext")
+        rl_help+=("--pretext")
+        rl_bm+=("--pretext")
+        rl_desktop+=("$RUNLAUNCHER_DESKTOP_PRETEXT")
+        rl_fm+=("$RUNLAUNCHER_FM_PRETEXT")
+        rl_run+=("$RUNLAUNCHER_RUN_PRETEXT")
+        rl_help+=("$RUNLAUNCHER_HELP_PRETEXT")
+        rl_bm+=("$RUNLAUNCHER_BM_PRETEXT")
+    fi
+
+    [ "$SORT_BY_NUMBER" != "false" ] && NUMBERSORTARG="-n"
+    [ "$SORT_IN_REVERSE" != "false" ] && REVERSESORTARG="-r"
+    SORT_ARGS="$NUMBERSORTARG $REVERSESORTARG $SORT_ARGS"
+
+    read -ra uniq_args <<< "${UNIQ_ARGS}"
+    read -ra sort_args <<< "${SORT_ARGS}"
+
+    # $PATH listing
+    case "$function" in
+        "run")
+            load_x "spmenu_path"
+            parse "$args"
+            ;;
+        "fm")
+            load_x "spmenu_fm"
+            prepare_dirnav "$args" && exit 0 || exit 1
+            ;;
+        "desktop")
+            load_x "spmenu_desktop" || exit 1
+            [ "$clearcache" = "true" ] && clear_cache
+            prep_desktop
+            print_desktop_menu "$args"
+            ;;
+        "help")
+            print_cli_help
+            exit 0
+            ;;
+        *)
+            printf "Undefined function: '%s'\n" "$function"
+            exit 1
+            ;;
+    esac
+}
+
+# shellcheck disable=SC2031
+main "$@"

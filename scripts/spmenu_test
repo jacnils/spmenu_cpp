@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# spmenu test script
+# See LICENSE file for copyright and license details.
+
+# reset sequence
+reset='\033[0m'
+
+# fg colors
+v1='\033[0;30m'
+v2='\033[0;31m'
+v3='\033[0;32m'
+v4='\033[0;33m'
+v5='\033[0;34m'
+v6='\033[0;35m'
+v7='\033[0;36m'
+v8='\033[0;37m'
+v9='\033[1;30m'
+v10='\033[1;31m'
+v11='\033[1;32m'
+v12='\033[1;33m'
+v13='\033[1;34m'
+v14='\033[1;35m'
+v15='\033[1;36m'
+v16='\033[1;37m'
+
+# bg colors
+b1='\033[0;40m'
+b2='\033[0;41m'
+b3='\033[0;42m'
+b4='\033[0;43m'
+b5='\033[0;44m'
+b6='\033[0;45m'
+b7='\033[0;46m'
+b8='\033[0;47m'
+b9='\033[1;40m'
+b10='\033[1;41m'
+b11='\033[1;42m'
+b12='\033[1;43m'
+b13='\033[1;44m'
+b14='\033[1;45m'
+b15='\033[1;46m'
+b16='\033[1;47m'
+
+cindex=0
+l[0]=a
+l[1]=b
+l[2]=c
+l[3]=d
+l[4]=e
+l[5]=f
+l[6]=g
+l[7]=h
+l[8]=i
+l[9]=j
+l[10]=k
+l[11]=l
+l[12]=m
+l[13]=n
+l[14]=o
+l[15]=p
+l[16]=q
+l[17]=r
+l[18]=s
+l[19]=t
+l[20]=u
+l[21]=v
+l[22]=w
+l[23]=x
+l[24]=y
+l[25]=z
+
+protocol='Unknown'
+[ -n "$DISPLAY" ] && protocol='X11' && protocol_arg="-x11"
+[ -n "$WAYLAND_DISPLAY" ] && protocol='Wayland' && protocol_arg="-wl"
+
+main() {
+cat << EOF
+
+                         ████████████████████████████████
+                         ████████████████████████████████
+                         ████████████████████████████████
+                         ██████                    ██████
+                         ██████                    ██████
+                         ██████                    ██████
+                         ██████       ███████████████████
+                         ██████       ███████████████████
+                         ██████       ███████████████████
+                         ██████
+                         ██████
+███████████████████████████████
+███████████████████████████████
+███████████████████████████████
+
+EOF
+printf "${v2}s${v3}p${v4}m${v5}e${v6}n${v7}u${v8} $(${RUNLAUNCHER:-spmenu} -v | sed 's/spmenu-//g') ${reset}(using protocol $protocol)\n\
+Press ${v3}↓${reset} or scroll to navigate, Press ${v3}Ctrl + Shift + P${reset} to change theme.\n\n\
+<big><u>16 foreground colors</u></big>\n\n\
+${v1}a${v2}b${v3}c${v4}d${v5}e${v6}f${v7}g${v8}h${v9}i${v10}j${v11}k${v12}j${v13}m${v14}n${v15}o${v16}p\n\
+\n<big><u>16 background colors</u></big>\n\n\
+${b1}\n\
+${b2}\n\
+${b3}\n\
+${b4}\n\
+${b5}\n\
+${b6}\n\
+${b7}\n\
+${b8}\n\
+${b9}\n\
+${b10}\n\
+${b11}\n\
+${b12}\n\
+${b13}\n\
+${b14}\n\
+${b15}\n\
+${b16}\n\
+"
+
+cindex=0
+l[0]=a
+l[1]=b
+l[2]=c
+l[3]=d
+l[4]=e
+l[5]=f
+l[6]=g
+l[7]=h
+l[8]=i
+l[9]=j
+l[10]=k
+l[11]=l
+l[12]=m
+l[13]=n
+l[14]=o
+l[15]=p
+l[16]=q
+l[17]=r
+l[18]=s
+l[19]=t
+l[20]=u
+l[21]=v
+l[22]=w
+l[23]=x
+l[24]=y
+l[25]=z
+
+printf "\n<big><u>256 foreground colors</u></big>\n\n"
+
+for i in {0..255}; do
+    [ "$cindex" -gt "25" ] && cindex=0
+    printf "\e[38;5;%dm${l[cindex]}" "$i"
+    (((i+3) % 18)) || printf '\e[0m\n'
+    cindex=$((cindex+1))
+done
+
+printf "\n\n<big><u>256 background colors</u></big>\n\n"
+
+for i in {0..255}; do
+    printf "\e[48;5;%dm " "$i"
+    (((i+3) % 18)) || printf '\e[0m\n'
+done
+
+printf "\n\n<big><u>True color foreground colors</u></big>\n\n"
+
+awk 'BEGIN{
+    for (colnum = 0; colnum < 100; colnum++) {
+        r = 255-(colnum*255/100);
+        g = (colnum*510/100);
+        b = (colnum*255/100);
+        if (g>255) g = 510-g;
+            printf "\033[38;2;%d;%d;%dm%s\033[0m", r,g,b, "a";
+        i++;
+    }
+    printf "\n";
+    for (colnum = 0; colnum < 100; colnum++) {
+        r = 255-(colnum*255/100);
+        g = (colnum*510/100);
+        b = (colnum*255/100);
+        if (g>255) g = 510-g;
+            printf "\033[38;2;%d;%d;%dm%s\033[0m", r,g,b, "b";
+        i++;
+    }
+    printf "\n";
+    for (colnum = 0; colnum < 100; colnum++) {
+        r = 255-(colnum*255/100);
+        g = (colnum*510/100);
+        b = (colnum*255/100);
+        if (g>255) g = 510-g;
+            printf "\033[38;2;%d;%d;%dm%s\033[0m", r,g,b, "c";
+        i++;
+    }
+    printf "\n";
+}'
+
+printf "\n<big><u>True color background colors</u></big>\n\n"
+
+awk 'BEGIN{
+    for (colnum = 0; colnum < 200; colnum++) {
+        r = 255-(colnum*255/200);
+        g = (colnum*510/200);
+        b = (colnum*255/200);
+        if (g>255) g = 510-g;
+        printf "\033[48;2;%d;%d;%dm%s\033[0m", r,g,b, " ";
+        i++;
+    }
+    printf "\n";
+    for (colnum = 0; colnum < 200; colnum++) {
+        r = 255-(colnum*255/200);
+        g = (colnum*510/200);
+        b = (colnum*255/200);
+        if (g>255) g = 510-g;
+        printf "\033[48;2;%d;%d;%dm%s\033[0m", r,g,b, " ";
+        i++;
+    }
+    printf "\n";
+}'
+
+printf "\n\
+<big><u>Formatting</u></big>\n\n\
+abcdefghijklmnopqrstuvwxyz\n\
+<b>abcdefghijklmnopqrstuvwxyz</b> - b\n\
+<i>abcdefghijklmnopqrstuvwxyz</i> - i\n\
+<s>abcdefghijklmnopqrstuvwxyz</s> - s\n\
+<u>abcdefghijklmnopqrstuvwxyz</u> - u\n\
+<sub>abcdefghijklmnopqrstuvwxyz - sub</sub>\n\
+<sup>abcdefghijklmnopqrstuvwxyz - sup</sup>\n\
+<tt>abcdefghijklmnopqrstuvwxyz</tt> - tt\n\
+<small>abcdefghijklmnopqrstuvwxyz</small> - small\n\
+<big>abcdefghijklmnopqrstuvwxyz</big> - big\n\
+\n"
+
+printf "\n\
+<big><u>Emojis</u></big>\n\nThe emojis are: Black Square, Red Square and Pirate Flag\n\
+⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛⬛\n\
+🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥\n\
+🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️🏴‍☠️\n\
+\n"
+
+printf "\n<big><u>The End</u></big>\n"
+
+printf "\nIf spmenu displayed 16 colors, 256 colors and true color (full RGB spectrum) as well as various forms of formatted text, everything works fine.\n"
+printf "Otherwise please file a bug report. Click \033[38;2;00;00;238mhere${reset} to file a bug report.\n"
+}
+
+open_bug_report() {
+    [ -x "$(command -v $BROWSER)" ] && {
+        $BROWSER "https://git.speedie.site/speedie/spmenu/issues"
+        return 0
+    }
+
+    [ -x "$(command -v xdg-open)" ] && {
+        xdg-open "https://git.speedie.site/speedie/spmenu/issues"
+        return 0
+    }
+
+    return 1
+}
+
+text="$(main "$@" | ${RUNLAUNCHER:-spmenu} --pretext "https://spmenu.speedie.site" --hide-caret --no-allow-typing --top --lines 9000 $protocol_arg "$@" --columns 1 --prompt "<big>spmenu <i>test</i> <small>script</small></big>")"
+
+printf "%s" "$text" | grep -q "Otherwise please file a bug report." && open_bug_report
+
+exit $?
