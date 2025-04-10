@@ -1,6 +1,12 @@
-# spmenu
+# spmenu_cpp
 
 ![preview](/screenshots/preview.png)
+
+## Notice
+
+This project won't be updated. This is simply a PoC for a port to C++, which can be compiled almost entirely with a C++ compiler.
+
+---
 
 spmenu is an X11 and Wayland menu application which takes standard input, parses
 it, lets the user choose an option and sends the selected option to standard output.
